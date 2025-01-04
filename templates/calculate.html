@@ -1,0 +1,294 @@
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>栄養素計算結果</title>
+    <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">
+    <style>
+        html {
+            overflow-y: scroll; /* 常に縦スクロールバーを表示 */
+        }
+        body {
+            font-family: 'Arial', sans-serif;
+            background-color: #ffe4c1;
+            color: #333;
+        }
+        .container {
+            margin-top: 30px;
+            background: #fff;
+            padding: 20px;
+            border-radius: 15px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.2);
+        }
+        h1, h3 {
+            color: #d35400;
+        }
+        .table-container {
+            position: relative;
+            overflow-x: auto;
+            border: 1px solid #ddd;
+        }
+        table {
+            border-collapse: collapse;
+            width: auto;
+            white-space: nowrap;
+        }
+        table th, table td {
+            padding: 8px 12px;
+            text-align: center;
+            border: 1px solid #ddd;
+            min-width: 80px; /* 列の幅を統一 */
+        }
+        table th {
+            background-color: #f5c089;
+            color: #fff;
+            position: sticky;
+            top: 0;
+            z-index: 10;
+        }
+        .fixed-left {
+            position: sticky;
+            left: 0;
+            background-color: #f5c089;
+            z-index: 11;
+        }
+        .table-danger {
+            background-color: #ffdddd !important;
+        }
+        .highlight {
+            background-color: #ffeeba !important; /* 不適合セルをハイライト */
+        }
+
+        .nav-tabs .nav-link {
+            background-color: #f4f4f4;
+            border: 1px solid #ddd;
+            color: #333;
+            border-radius: 5px;
+            margin-right: 5px;
+            padding: 10px 15px;
+        }
+
+        .nav-tabs .nav-link.active {
+            background-color: #2a9d8f;
+            color: #fff;
+            border-color: #2a9d8f;
+        }
+
+        .tab-content {
+    min-height: 600px; /* タブの高さを固定 */
+}
+
+
+        /* タブ内のリストの高さを固定し、スクロールバーを常に表示 */
+        .tab-pane .list-group {
+            max-height: 600px; /* 固定された高さ */
+            overflow-y: scroll; /* スクロール可能に設定 */
+        }
+
+        .tab-pane {
+            position: relative;
+        }
+
+        .list-group-item {
+            display: flex;
+            flex-direction: column;
+            align-items: flex-start;
+            padding: 10px;
+            visibility: visible; /* 初期状態で表示 */
+        }
+
+        .list-group-item.hidden {
+            display: none !important; /* 非表示アイテムを完全に排除 */
+            height: 0; /* 項目が見えないように高さを完全に排除 */
+            margin: 0;
+            padding: 0;
+            border: none; /* 境界線を削除 */
+        }
+
+        .search-bar {
+            margin-bottom: 10px;
+            max-width: 300px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>栄養素計算結果（幼犬基準）</h1>
+
+        <!-- 選択した食材とグラム数 -->
+        <h3>選択した食材とグラム数</h3>
+        {% if selected_list %}
+        <ul>
+            {% for food_code, grams, name in selected_list %}
+            <li><strong>{{ name }}</strong>: {{ grams }}g (食品番号: {{ food_code }})</li>
+            {% endfor %}
+        </ul>
+        <p><strong>合計グラム数:</strong> {{ total_grams | round(2) }}g</p>
+        {% else %}
+        <p>選択された食材がありません。</p>
+        {% endif %}
+
+        <!-- 栄養素別の合計値 -->
+        <h3>栄養素別の合計値</h3>
+        <div class="table-container">
+            <table class="table table-bordered">
+                <thead>
+                    <tr>
+                        <th class="fixed-left">項目</th>
+                        {% for nutrient, _ in totals.items() %}
+                            <th>{{ nutrient_labels[nutrient][0] if nutrient in nutrient_labels else nutrient }}</th>
+                        {% endfor %}
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <th class="fixed-left">合計値</th>
+                        {% for nutrient, total in totals.items() %}
+                            <td class="{% if total < aafco_standards.get(nutrient, 0) %}table-danger{% endif %}">
+                                {{ total | round(2) }}
+                            </td>
+                        {% endfor %}
+                    </tr>
+                    <tr>
+                        <th class="fixed-left">基準値</th>
+                        {% for nutrient, standard in aafco_standards.items() %}
+                            <td class="{% if totals.get(nutrient, 0) < standard %}table-danger{% endif %}">
+                                {{ standard | round(2) }}
+                            </td>
+                        {% endfor %}
+                    </tr>
+                    <tr>
+                        <th class="fixed-left">AAFCO適合</th>
+                        {% for nutrient, total in totals.items() %}
+                            <td class="{% if total < aafco_standards.get(nutrient, 0) %}table-danger{% endif %}">
+                                {% if total >= aafco_standards.get(nutrient, 0) %}
+                                    <span style="color: green;">✔ 適合</span>
+                                {% else %}
+                                    <span style="color: red;">✖ 不適合</span>
+                                {% endif %}
+                            </td>
+                        {% endfor %}
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <!-- 不足している栄養素の提案食材 -->
+        <h3>不足している栄養素を補う提案食材</h3>
+        {% if suggestions %}
+        <div class="card">
+            <div class="card-header">提案食材</div>
+            <div class="card-body">
+                <!-- 全体検索バー -->
+                <div class="mb-3">
+                    <input type="text" class="form-control" id="global-search-bar" placeholder="全体を検索 (食材名または食品番号)" oninput="filterAllLists(this.value)">
+                </div>
+
+                <!-- タブ -->
+                <ul class="nav nav-tabs" id="suggestionTabs" role="tablist">
+                    {% for nutrient, _ in suggestions.items() %}
+                    <li class="nav-item">
+                        <a class="nav-link {% if loop.first %}active{% endif %}" id="tab-{{ nutrient }}" data-toggle="tab" href="#content-{{ nutrient }}" role="tab">
+                            {{ nutrient_labels[nutrient][0] }}（{{ nutrient_labels[nutrient][1] }}）
+                        </a>
+                    </li>
+                    {% endfor %}
+                </ul>
+
+                <!-- タブ内容 -->
+                <div class="tab-content" id="suggestionTabContent">
+                    {% for nutrient, items in suggestions.items() %}
+                    <div class="tab-pane fade {% if loop.first %}show active{% endif %}" id="content-{{ nutrient }}" role="tabpanel">
+                        <!-- タブ内検索バー -->
+                        <div class="mt-3">
+                            <input type="text" class="form-control tab-search-bar" placeholder="このリストを検索 (食材名または食品番号)" 
+                                   oninput="filterTabList('{{ nutrient }}', this.value)">
+                        </div>
+                        <ul class="list-group mt-3 list-group-tab" id="list-{{ nutrient }}">
+                            {% for item in items %}
+                            <li class="list-group-item">
+                                <strong>{{ item.name }}</strong> (食品番号: {{ item.food_code }})<br>
+                                <small>{{ item.value | round(2) }} {{ nutrient_labels[nutrient][1] }} / 100g</small>
+                            </li>
+                            {% endfor %}
+                        </ul>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+        {% else %}
+        <p class="text-success">すべての栄養素が適合しています！</p>
+        {% endif %}
+
+        <a href="/" class="btn btn-primary mt-3">戻る</a>
+    </div>
+
+
+<script src="https://code.jquery.com/jquery-3.5.1.slim.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@popperjs/core@2.4.4/dist/umd/popper.min.js"></script>
+<script src="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/js/bootstrap.min.js"></script>
+
+
+    <script>
+        function submitAdjustForm() {
+            const selectedList = document.getElementById('selected-list-hidden').value;
+            const deficiencies = document.getElementById('deficiencies-hidden').value;
+            const suggestions = document.getElementById('suggestions-hidden').value;
+
+            console.log("Selected List:", selectedList);
+            console.log("Deficiencies:", deficiencies);
+            console.log("Suggestions:", suggestions);
+
+            sessionStorage.setItem('selected_list', selectedList);
+            sessionStorage.setItem('deficiencies', deficiencies);
+            sessionStorage.setItem('suggestions', suggestions);
+            sessionStorage.setItem('selected_ingredients', selectedList);
+
+            window.location.href = '/adjust';
+        }
+
+// 全体検索
+function filterAllLists(query) {
+    const keywords = query.toLowerCase().split(/\s+/); // スペースまたはカンマでキーワードを分割
+    const items = document.querySelectorAll('.list-group-tab .list-group-item');
+
+    items.forEach(item => {
+        const text = item.textContent.toLowerCase();
+        // すべてのキーワードが含まれる場合に表示
+        const matches = keywords.every(keyword => text.includes(keyword));
+        if (matches) {
+            item.classList.remove('hidden'); // 表示
+            item.dataset.globalMatch = "true"; // 全体検索でマッチしたフラグを設定
+        } else {
+            item.classList.add('hidden'); // 非表示
+            item.dataset.globalMatch = "false"; // 全体検索でマッチしないフラグを設定
+        }
+    });
+}
+
+// タブ内検索
+function filterTabList(nutrient, query) {
+    const keywords = query.toLowerCase().split(/\s+/); // スペースまたはカンマでキーワードを分割
+    const list = document.getElementById(`list-${nutrient}`);
+    const items = list.getElementsByClassName('list-group-item');
+
+    Array.from(items).forEach(item => {
+        // 全体検索でマッチしたアイテムだけをさらに絞り込む
+        if (item.dataset.globalMatch === "true") {
+            const text = item.textContent.toLowerCase();
+            const matches = keywords.every(keyword => text.includes(keyword));
+            if (matches) {
+                item.classList.remove('hidden'); // 表示
+            } else {
+                item.classList.add('hidden'); // 非表示
+            }
+        } else {
+            item.classList.add('hidden'); // 全体検索で非表示のアイテムはそのまま非表示
+        }
+    });
+}
+
+    </script>
+</body>
+</html>
